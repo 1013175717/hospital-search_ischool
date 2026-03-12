@@ -1,1 +1,167 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>نظام البحث المتقدم للمستشفيات</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, sans-serif; background: #f0f4f8; color: #333; }
+        header { background: linear-gradient(135deg, #1a73e8, #0d47a1); color: white; text-align: center; padding: 20px; font-size: 24px; font-weight: bold; }
+        .filter-box { background: white; margin: 20px auto; padding: 20px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); max-width: 1100px; }
+        .filter-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 15px; margin-bottom: 15px; }
+        .filter-item label { display: block; margin-bottom: 6px; font-weight: bold; color: #1a73e8; font-size: 14px; }
+        .filter-item select, .filter-item input { width: 100%; padding: 10px; border: 2px solid #ddd; border-radius: 8px; font-size: 14px; font-family: inherit; }
+        .filter-item select:focus, .filter-item input:focus { outline: none; border-color: #1a73e8; }
+        .search-row { display: flex; gap: 10px; align-items: flex-end; }
+        .search-row .filter-item { flex: 1; }
+        .btn { padding: 10px 25px; border: none; border-radius: 8px; font-size: 15px; cursor: pointer; font-family: inherit; font-weight: bold; transition: all 0.3s; }
+        .btn-search { background: #1a73e8; color: white; }
+        .btn-search:hover { background: #1558b0; }
+        .btn-reset { background: #e53935; color: white; }
+        .btn-reset:hover { background: #b71c1c; }
+        .result-info { max-width: 1100px; margin: 0 auto 10px auto; font-size: 15px; color: #555; padding: 0 5px; }
+        .result-info span { color: #1a73e8; font-weight: bold; }
+        .table-container { max-width: 1100px; margin: 0 auto 30px auto; overflow-x: auto; background: white; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; font-size: 14px; }
+        thead { background: linear-gradient(135deg, #1a73e8, #0d47a1); color: white; position: sticky; top: 0; }
+        thead th { padding: 14px 10px; text-align: center; white-space: nowrap; }
+        tbody tr:nth-child(even) { background: #f5f9ff; }
+        tbody tr:hover { background: #dce8ff; }
+        tbody td { padding: 12px 10px; text-align: center; border-bottom: 1px solid #eee; }
+        #loading { text-align: center; padding: 30px; color: #1a73e8; font-size: 18px; display: none; }
+        #no-result { text-align: center; padding: 30px; color: #e53935; font-size: 18px; display: none; }
+        @media (max-width: 768px) { .filter-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 480px) { .filter-grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
 
+<header>🏥 نظام البحث المتقدم للمستشفيات</header>
+
+<div class="filter-box">
+    <div class="filter-grid">
+        <div class="filter-item">
+            <label>المحافظة</label>
+            <select id="gov">
+                <option value="الكل">الكل</option>
+                {% for g in govs %}
+                <option value="{{ g }}">{{ g }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-item">
+            <label>المنطقة / المدينة</label>
+            <select id="city">
+                <option value="الكل">الكل</option>
+                {% for c in cities %}
+                <option value="{{ c }}">{{ c }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-item">
+            <label>نوع مقدم الخدمة</label>
+            <select id="type">
+                <option value="الكل">الكل</option>
+                {% for t in types %}
+                <option value="{{ t }}">{{ t }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="filter-item">
+            <label>التخصص</label>
+            <select id="specialty">
+                <option value="الكل">الكل</option>
+                {% for s in specialties %}
+                <option value="{{ s }}">{{ s }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    <div class="search-row">
+        <div class="filter-item">
+            <label>اسم مقدم الخدمة</label>
+            <input type="text" id="name" placeholder="ابحث بالاسم...">
+        </div>
+        <button class="btn btn-search" onclick="doSearch()">🔍 بحث</button>
+        <button class="btn btn-reset" onclick="resetAll()">🔄 إعادة ضبط</button>
+    </div>
+</div>
+
+<div class="result-info" id="result-info"></div>
+<div id="loading">⏳ جاري البحث...</div>
+<div id="no-result">❌ لا توجد نتائج مطابقة</div>
+
+<div class="table-container">
+    <table id="result-table">
+        <thead id="table-head"></thead>
+        <tbody id="table-body"></tbody>
+    </table>
+</div>
+
+<script>
+    async function doSearch() {
+        const gov = document.getElementById("gov").value;
+        const city = document.getElementById("city").value;
+        const type = document.getElementById("type").value;
+        const specialty = document.getElementById("specialty").value;
+        const name = document.getElementById("name").value;
+
+        document.getElementById("loading").style.display = "block";
+        document.getElementById("no-result").style.display = "none";
+        document.getElementById("result-info").textContent = "";
+
+        const params = new URLSearchParams({ gov, city, type, specialty, name });
+        const response = await fetch(`/search?${params}`);
+        const result = await response.json();
+
+        document.getElementById("loading").style.display = "none";
+        renderTable(result.columns, result.data, result.count);
+    }
+
+    function renderTable(columns, data, count) {
+        const head = document.getElementById("table-head");
+        const body = document.getElementById("table-body");
+        const info = document.getElementById("result-info");
+        const noResult = document.getElementById("no-result");
+
+        head.innerHTML = "";
+        body.innerHTML = "";
+
+        if (data.length === 0) {
+            noResult.style.display = "block";
+            info.innerHTML = "";
+            return;
+        }
+
+        noResult.style.display = "none";
+        info.innerHTML = `إجمالي النتائج: <span>${count}</span> سجل`;
+
+        let headRow = "<tr>";
+        columns.forEach(col => { headRow += `<th>${col}</th>`; });
+        headRow += "</tr>";
+        head.innerHTML = headRow;
+
+        data.forEach(row => {
+            let tr = "<tr>";
+            columns.forEach(col => { tr += `<td>${row[col] ?? ""}</td>`; });
+            tr += "</tr>";
+            body.innerHTML += tr;
+        });
+    }
+
+    function resetAll() {
+        document.getElementById("gov").value = "الكل";
+        document.getElementById("city").value = "الكل";
+        document.getElementById("type").value = "الكل";
+        document.getElementById("specialty").value = "الكل";
+        document.getElementById("name").value = "";
+        doSearch();
+    }
+
+    window.onload = () => doSearch();
+    document.addEventListener("keypress", (e) => { if (e.key === "Enter") doSearch(); });
+</script>
+
+</body>
+</html>
